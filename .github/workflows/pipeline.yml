@@ -1,0 +1,88 @@
+name: Deployment pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backend and frontend dependencies
+        run: |
+          npm install
+          cd frontend && npm install
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build full-stack application (frontend + backend)
+        run: npm run build
+
+  deploy:
+    needs: [build_and_test]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(join(github.event.commits.*.message, ' '), '#skip') }}
+    steps:
+      - name: Trigger Render deployment
+        run: curl ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+  notify_success:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord Success Notification
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          nodetail: true
+          title: "** Deployment Successful! ** Phonebook app updated in production"
+          description: |
+            **Deployment Details**
+            **Commit:** ${{ github.sha }}
+            **Message:** ${{ github.event.head_commit.message }}
+            **Author:** ${{ github.event.head_commit.author.name }}
+          color: 0x00ff00
+
+  notify_failure:
+    needs: [build_and_test]
+    runs-on: ubuntu-latest
+    if: ${{ failure() && github.event_name == 'push' }}
+    steps:
+      - name: Send Discord Failure Notification
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "** Build Failed! ** Phonebook pipeline encountered an error"
+          description: |
+            **Deployment Details**
+            **Commit:** ${{ github.sha }}
+            **Message:** ${{ github.event.head_commit.message }}
+            **Author:** ${{ github.event.head_commit.author.name }}
+            **Workflow:** ${{ github.workflow }}
+            **Job:** ${{ github.job }}
+          color: 0xff0000
+
+  tag_release:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@4ed44965e0db8dab2b466a16da04aec3cc312fd8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
