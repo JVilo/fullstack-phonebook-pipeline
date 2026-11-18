@@ -76,9 +76,9 @@ jobs:
           color: 0xff0000
 
   tag_release:
-    needs: [deploy]
+    needs: [ deploy ]
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'push' && !contains(join(github.event.commits.*.message, ' '), '#skip') }}
     steps:
       - uses: actions/checkout@v4
       - name: Bump version and push tag
